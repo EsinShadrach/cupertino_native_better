@@ -1,3 +1,41 @@
+## 1.5.3
+
+### Fixed — #62 `CNTabBar` taps swallowed by ancestor gesture recognizers
+
+`CNTabBar` stopped responding to taps whenever any ancestor widget held an active gesture recognizer over the same region. The reporter's minimal repro:
+
+```dart
+GestureDetector(
+  onLongPress: () {},        // any active recognizer is enough
+  child: CNTabBar(items: [...], currentIndex: i, onTap: ...),
+)
+```
+
+Tapping a tab did nothing. In the wild this surfaced via `requests_inspector`, which wraps the whole app in a long-press `GestureDetector` — installing it silently killed the tab bar.
+
+**Cause:** `_buildNativeTabBarPlatformView` constructed the iOS `UiKitView` / macOS `AppKitView` without a `gestureRecognizers` set. With none supplied, the platform view is a passive arena participant and only receives touches if nothing else claims them, so the ancestor won uncontested.
+
+**Fix:** both platform-view branches now pass `Factory<EagerGestureRecognizer>(() => EagerGestureRecognizer())`. `EagerGestureRecognizer.addAllowedPointer` immediately calls `resolve(GestureDisposition.accepted)`, so the platform view claims the pointer on pointer-down and touches forward to the native `UITabBar` regardless of what is competing.
+
+Note the trade-off: gestures made **directly over the tab bar** (long-press, drag) now go to the native bar instead of bubbling to ancestor recognizers. This is the intended behaviour for a tab bar, which is only ever tapped.
+
+Reported and originally patched by @MohamedAboElM3aTy (#62, PR #63). The submitted patch used a bare `TapGestureRecognizer()`, which is a no-op — Flutter's `TapGestureRecognizer.isPointerAllowed` returns `false` when none of `onTapDown`/`onTap`/`onTapUp`/`onTapCancel`/`onTapMove` are set, so the recognizer never enters the arena. Amended to `EagerGestureRecognizer` before merge and verified on-device (iPhone, iOS 26.5).
+
+### Known — same gap remains in other components (#65)
+
+The identical issue affects other platform-view widgets and is tracked in #65. It is **not** a uniform fix, so it was deliberately kept out of this release:
+
+- `button.dart`, `switch.dart`, `slider.dart`, `popup_menu_button.dart` pass a bare `TapGestureRecognizer()` and therefore carry the same latent no-op.
+- `segmented_control.dart`, `glass_button_group.dart`, `icon.dart`, `liquid_glass_container.dart`, `floating_island.dart`, `search_bar.dart`, `search_scaffold.dart` pass no `gestureRecognizers` at all.
+- Several of those **must not** get a claiming recognizer — `icon.dart` is decorative (it would steal taps from parent widgets), `liquid_glass_container.dart` / `floating_island.dart` / `search_bar.dart` deliberately wrap the platform view in `IgnorePointer` and handle interaction Flutter-side, and `search_scaffold.dart`'s view is `Positioned.fill` behind all Flutter content.
+- The button-like components need an *armed* tap recognizer (`TapGestureRecognizer()..onTap = () {}`) rather than an eager one, so drags still fall through to a parent scrollable — `button.dart:654` documents that intent explicitly.
+
+### Example app
+
+- New: `Testing → #62 / PR #63: CNTabBar tap gesture arena` — three switchable scenarios verifying the fix on-device: an ancestor `GestureDetector(onLongPress:)` (the reporter's minimal repro), an ancestor `PageView` (drag-vs-tap competition), and a no-ancestor baseline for regression coverage. Each scenario avoids nesting a `Scrollable` in the gesture region so ancestor gestures resolve deterministically.
+
+---
+
 ## 1.5.2
 
 ### Fixed — #61 `CNBottomSheet.showCupertino` compile error on Flutter < 3.44

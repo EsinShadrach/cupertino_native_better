@@ -404,7 +404,10 @@ class HomePage extends StatelessWidget {
               CupertinoListTile(
                 title: Text('#46: CNToast use_build_context_synchronously'),
                 leading: CNIcon(
-                  symbol: CNSymbol('exclamationmark.bubble', color: accentColor),
+                  symbol: CNSymbol(
+                    'exclamationmark.bubble',
+                    color: accentColor,
+                  ),
                 ),
                 trailing: CupertinoListTileChevron(),
                 onTap: () {
@@ -424,23 +427,19 @@ class HomePage extends StatelessWidget {
                 onTap: () {
                   Navigator.of(context).push(
                     CupertinoPageRoute(
-                      builder: (_) =>
-                          const Issue62TabBarGestureArenaTestPage(),
+                      builder: (_) => const Issue62TabBarGestureArenaTestPage(),
                     ),
                   );
                 },
               ),
               CupertinoListTile(
                 title: Text('#55: PopupMenu isDestructive'),
-                leading: CNIcon(
-                  symbol: CNSymbol('trash', color: accentColor),
-                ),
+                leading: CNIcon(symbol: CNSymbol('trash', color: accentColor)),
                 trailing: CupertinoListTileChevron(),
                 onTap: () {
                   Navigator.of(context).push(
                     CupertinoPageRoute(
-                      builder: (_) =>
-                          const Issue55PopupMenuDestructiveTest(),
+                      builder: (_) => const Issue55PopupMenuDestructiveTest(),
                     ),
                   );
                 },

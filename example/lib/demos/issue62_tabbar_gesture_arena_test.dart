@@ -75,9 +75,18 @@ class _Issue62TabBarGestureArenaTestPageState
         trailing: CupertinoSegmentedControl<int>(
           groupValue: _scenario,
           children: const {
-            0: Padding(padding: EdgeInsets.symmetric(horizontal: 6), child: Text('LongPress')),
-            1: Padding(padding: EdgeInsets.symmetric(horizontal: 6), child: Text('PageView')),
-            2: Padding(padding: EdgeInsets.symmetric(horizontal: 6), child: Text('Baseline')),
+            0: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6),
+              child: Text('LongPress'),
+            ),
+            1: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6),
+              child: Text('PageView'),
+            ),
+            2: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6),
+              child: Text('Baseline'),
+            ),
           },
           onValueChanged: (v) => setState(() => _scenario = v),
         ),
@@ -130,8 +139,10 @@ class _Issue62TabBarGestureArenaTestPageState
                   const SizedBox(height: 12),
                   _counterRow('Tab index', _tabIndex.toString()),
                   _counterRow('Tab tap count', _tabTapCount.toString()),
-                  _counterRow('Ancestor onLongPress count',
-                      _ancestorLongPressCount.toString()),
+                  _counterRow(
+                    'Ancestor onLongPress count',
+                    _ancestorLongPressCount.toString(),
+                  ),
                   const SizedBox(height: 12),
                   Expanded(
                     child: Container(
@@ -139,8 +150,9 @@ class _Issue62TabBarGestureArenaTestPageState
                         color: const Color(0xFFFFF3B0),
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(
-                          color: CupertinoColors.systemYellow
-                              .resolveFrom(context),
+                          color: CupertinoColors.systemYellow.resolveFrom(
+                            context,
+                          ),
                           width: 2,
                         ),
                       ),
@@ -178,11 +190,7 @@ class _Issue62TabBarGestureArenaTestPageState
           child: PageView(
             controller: _pageController,
             onPageChanged: (i) => setState(() => _pageIndex = i),
-            children: [
-              _pageViewPage(0),
-              _pageViewPage(1),
-              _pageViewPage(2),
-            ],
+            children: [_pageViewPage(0), _pageViewPage(1), _pageViewPage(2)],
           ),
         ),
         _tabBar(),
@@ -289,17 +297,20 @@ class _Issue62TabBarGestureArenaTestPageState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title,
-            style: CupertinoTheme.of(context)
-                .textTheme
-                .navTitleTextStyle
-                .copyWith(fontSize: 16)),
+        Text(
+          title,
+          style: CupertinoTheme.of(
+            context,
+          ).textTheme.navTitleTextStyle.copyWith(fontSize: 16),
+        ),
         const SizedBox(height: 4),
-        Text(body,
-            style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
-                  fontSize: 13,
-                  color: CupertinoColors.secondaryLabel.resolveFrom(context),
-                )),
+        Text(
+          body,
+          style: CupertinoTheme.of(context).textTheme.textStyle.copyWith(
+            fontSize: 13,
+            color: CupertinoColors.secondaryLabel.resolveFrom(context),
+          ),
+        ),
       ],
     );
   }
