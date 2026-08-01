@@ -1,3 +1,23 @@
+## 1.5.4
+
+### Fixed — #64 `LiquidGlassContainer` glass renders short in the bottom safe area
+
+When a `LiquidGlassContainer`'s frame reached into the bottom safe area — the common "floating bottom panel" layout on home-indicator devices — the native glass stopped short of the frame it was given. Flutter-drawn children stayed in the right place, so they visually spilled outside the glass.
+
+**Cause:** `LiquidGlassContainerPlatformView` hosts the SwiftUI glass in a `UIHostingController`, which propagates the screen's safe area into its SwiftUI content. Where the platform view's frame overlapped the home-indicator inset, the hosted `GeometryReader`/shape was inset by that overlap, so the glass filled only the reduced size.
+
+**Fix:** `self.hostingController.safeAreaRegions = []`, matching the intent of the existing `safeAreaInsets` override in `CupertinoSwitchPlatformView.swift`. `safeAreaRegions` is iOS 16.4+ and the class is already `@available(iOS 26.0, *)`, so no extra availability guard is needed.
+
+Reported and fixed by @fbernack (PR #64), who measured up to **22 pt** short on an iPhone 17 Pro (iOS 26.4 simulator). Independently reproduced and verified on a physical iPhone running **iOS 26.5**: with a 140 pt panel pinned flush to the bottom of a 34 pt inset, the glass fell **~21 pt** short of its frame before the fix and filled it completely after.
+
+macOS is unaffected — `LiquidGlassContainerNSView` uses `NSHostingController`, and macOS windows have no bottom safe-area inset in practice.
+
+### Example app
+
+- New: `Testing → PR #64: LiquidGlass safe-area clip` — a glass panel whose bottom offset, height, and shape (`rect` / `capsule` / `circle`) are adjustable live. A solid red strip fills exactly the safe-area inset (the zone the bug leaves uncovered), a Flutter-drawn magenta outline marks the panel's true frame, and a cyan dashed line marks the safe-area boundary — so "glass short of frame" is directly visible rather than a judgement call. Sliding the bottom offset past the boundary shows whether the glass stays attached to its frame.
+
+---
+
 ## 1.5.3
 
 ### Fixed — #62 `CNTabBar` taps swallowed by ancestor gesture recognizers
