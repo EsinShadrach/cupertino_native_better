@@ -1,10 +1,31 @@
 import Flutter
 import UIKit
 
+/// A system-driven `userInterfaceStyle` change (e.g. Control Center's
+/// Appearance toggle) can leave `UISegmentedControl` rendering its
+/// selection pill and custom `selectedSegmentTintColor` with stale/default
+/// values until something forces a redraw — the underlying properties are
+/// still correct, it's a rendering-cache issue that recovers the instant
+/// the control redraws for any other reason (e.g. a tap). This subclass
+/// hooks `traitCollectionDidChange` so the platform view can force that
+/// redraw itself instead of waiting on an incidental one.
+private final class TraitAwareSegmentedControl: UISegmentedControl {
+  var onUserInterfaceStyleChange: (() -> Void)?
+
+  override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+    super.traitCollectionDidChange(previousTraitCollection)
+    guard #available(iOS 13.0, *) else { return }
+    if previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle {
+      onUserInterfaceStyleChange?()
+    }
+  }
+}
+
 class CupertinoSegmentedControlPlatformView: NSObject, FlutterPlatformView {
   private let channel: FlutterMethodChannel
   private let container: UIView
-  private let control: UISegmentedControl
+  private let control: TraitAwareSegmentedControl
+  private var tint: UIColor? = nil
   private var labels: [String] = []
   private var symbols: [String] = []
   private var perSymbolSizes: [CGFloat?] = []
@@ -23,14 +44,13 @@ class CupertinoSegmentedControlPlatformView: NSObject, FlutterPlatformView {
   init(frame: CGRect, viewId: Int64, args: Any?, messenger: FlutterBinaryMessenger) {
     self.channel = FlutterMethodChannel(name: "CupertinoNativeSegmentedControl_\(viewId)", binaryMessenger: messenger)
     self.container = UIView(frame: frame)
-    self.control = UISegmentedControl(items: [])
+    self.control = TraitAwareSegmentedControl(items: [])
 
     var labels: [String] = []
     var sfSymbols: [String] = []
     var selectedIndex: Int = UISegmentedControl.noSegment
     var enabled: Bool = true
     var isDark: Bool = false
-    var tint: UIColor? = nil
 
     if let dict = args as? [String: Any] {
       if let arr = dict["labels"] as? [String] { labels = arr }
@@ -54,7 +74,7 @@ class CupertinoSegmentedControlPlatformView: NSObject, FlutterPlatformView {
       if let v = dict["enabled"] as? NSNumber { enabled = v.boolValue }
       if let v = dict["isDark"] as? NSNumber { isDark = v.boolValue }
       if let style = dict["style"] as? [String: Any] {
-        if let n = style["tint"] as? NSNumber { tint = Self.colorFromARGB(n.intValue) }
+        if let n = style["tint"] as? NSNumber { self.tint = Self.colorFromARGB(n.intValue) }
         if let n = style["labelTint"] as? NSNumber { self.labelColor = Self.colorFromARGB(n.intValue) }
         if let n = style["selectedLabelTint"] as? NSNumber { self.selectedLabelColor = Self.colorFromARGB(n.intValue) }
         if let n = style["iconColor"] as? NSNumber { self.defaultIconColor = Self.colorFromARGB(n.intValue) }
@@ -77,8 +97,9 @@ class CupertinoSegmentedControlPlatformView: NSObject, FlutterPlatformView {
     rebuildSegments()
     control.selectedSegmentIndex = selectedIndex
     control.isEnabled = enabled
-    if #available(iOS 13.0, *), let c = tint { control.selectedSegmentTintColor = c }
+    if #available(iOS 13.0, *), let c = self.tint { control.selectedSegmentTintColor = c }
     self.applyLabelColors()
+    control.onUserInterfaceStyleChange = { [weak self] in self?.reapplyAppearanceAfterTraitChange() }
 
     control.translatesAutoresizingMaskIntoConstraints = false
     container.addSubview(control)
@@ -116,7 +137,9 @@ class CupertinoSegmentedControlPlatformView: NSObject, FlutterPlatformView {
         if let args = call.arguments as? [String: Any] {
           UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseInOut) {
             if #available(iOS 13.0, *), let n = args["tint"] as? NSNumber {
-              self.control.selectedSegmentTintColor = Self.colorFromARGB(n.intValue)
+              let c = Self.colorFromARGB(n.intValue)
+              self.tint = c
+              self.control.selectedSegmentTintColor = c
             }
           }
           if let n = args["labelTint"] as? NSNumber { self.labelColor = Self.colorFromARGB(n.intValue) }
@@ -158,6 +181,25 @@ class CupertinoSegmentedControlPlatformView: NSObject, FlutterPlatformView {
 
   @objc private func onChanged(_ sender: UISegmentedControl) {
     channel.invokeMethod("valueChanged", arguments: ["index": sender.selectedSegmentIndex])
+  }
+
+  /// Forces `control` to re-render with its already-correct property values
+  /// after a `userInterfaceStyle` change, working around the stale-render
+  /// issue described on [TraitAwareSegmentedControl]. Toggling the
+  /// selection through `.noSegment` (rather than just reassigning the same
+  /// index) forces UIKit to actually rebuild the selection pill instead of
+  /// no-op'ing a same-value set.
+  private func reapplyAppearanceAfterTraitChange() {
+    if #available(iOS 13.0, *), let c = tint {
+      control.selectedSegmentTintColor = c
+    }
+    applyLabelColors()
+    let idx = control.selectedSegmentIndex
+    if idx != UISegmentedControl.noSegment {
+      control.selectedSegmentIndex = UISegmentedControl.noSegment
+      control.selectedSegmentIndex = idx
+    }
+    control.setNeedsDisplay()
   }
 
   /// Overrides the system default label color (which otherwise just follows
