@@ -842,10 +842,20 @@ class CupertinoButtonPlatformView: NSObject, FlutterPlatformView {
     guard let button = self.button, !usesSwiftUI else { return }
     
     if #available(iOS 15.0, *) {
-      // Preserve current content while swapping configurations
+      // Preserve current content while swapping configurations. Every
+      // property below defaults on a *fresh* UIButton.Configuration (e.g.
+      // .imagePlacement defaults back to .leading, .imagePadding to 0) —
+      // so anything not explicitly carried over here silently resets
+      // whenever this runs, which happens on any tint/style change,
+      // including a brightness flip re-resolving a dynamic tint color.
       let currentTitle = button.configuration?.title
       let currentImage = button.configuration?.image
       let currentSymbolCfg = button.configuration?.preferredSymbolConfigurationForImage
+      let currentImagePlacement = button.configuration?.imagePlacement
+      let currentImagePadding = button.configuration?.imagePadding
+      let currentContentInsets = button.configuration?.contentInsets
+      let currentTitleTextAttributesTransformer = button.configuration?.titleTextAttributesTransformer
+      let currentTitleLineBreakMode = button.configuration?.titleLineBreakMode
       var config: UIButton.Configuration
       switch buttonStyle {
       case "plain": config = .plain()
@@ -887,6 +897,11 @@ class CupertinoButtonPlatformView: NSObject, FlutterPlatformView {
       config.title = currentTitle
       config.image = currentImage
       config.preferredSymbolConfigurationForImage = currentSymbolCfg
+      if let placement = currentImagePlacement { config.imagePlacement = placement }
+      if let padding = currentImagePadding { config.imagePadding = padding }
+      if let insets = currentContentInsets { config.contentInsets = insets }
+      if let transformer = currentTitleTextAttributesTransformer { config.titleTextAttributesTransformer = transformer }
+      if let lineBreakMode = currentTitleLineBreakMode { config.titleLineBreakMode = lineBreakMode }
       button.configuration = config
     } else {
       button.layer.cornerRadius = round ? 999 : 8
