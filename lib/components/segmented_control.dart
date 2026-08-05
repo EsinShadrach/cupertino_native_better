@@ -21,6 +21,8 @@ class CNSegmentedControl extends StatefulWidget {
     required this.onValueChanged,
     this.enabled = true,
     this.color,
+    this.labelColor,
+    this.selectedLabelColor,
     this.height = 32.0,
     this.shrinkWrap = false,
     this.sfSymbols,
@@ -46,6 +48,15 @@ class CNSegmentedControl extends StatefulWidget {
 
   /// Accent/tint color used for the control.
   final Color? color;
+
+  /// Overrides the unselected segments' label color. The native control
+  /// otherwise always uses the system label color for the current
+  /// light/dark style, independent of [color] — so a custom [color] can
+  /// end up with unreadable contrast without this.
+  final Color? labelColor;
+
+  /// Overrides the selected segment's label color. See [labelColor].
+  final Color? selectedLabelColor;
 
   /// Control height.
   final double height;
@@ -96,6 +107,8 @@ class _CNSegmentedControlState extends State<CNSegmentedControl>
   bool? _lastEnabled;
   bool? _lastIsDark;
   int? _lastTint;
+  int? _lastLabelTint;
+  int? _lastSelectedLabelTint;
   double? _intrinsicWidth;
 
   bool get _isDark => ThemeHelper.isDark(context);
@@ -164,20 +177,25 @@ class _CNSegmentedControlState extends State<CNSegmentedControl>
       'selectedIndex': widget.selectedIndex,
       'enabled': widget.enabled,
       'isDark': _isDark,
-      'style': encodeStyle(context, tint: widget.color)
-        ..addAll({
-          if (widget.iconSize != null) 'iconSize': widget.iconSize,
-          if (widget.iconColor != null)
-            'iconColor': resolveColorToArgb(widget.iconColor, context),
-          if (widget.iconPaletteColors != null)
-            'iconPaletteColors': widget.iconPaletteColors!
-                .map((c) => resolveColorToArgb(c, context))
-                .toList(),
-          if (widget.iconGradientEnabled != null)
-            'iconGradientEnabled': widget.iconGradientEnabled,
-          if (widget.iconRenderingMode != null)
-            'iconRenderingMode': widget.iconRenderingMode!.name,
-        }),
+      'style':
+          encodeStyle(
+            context,
+            tint: widget.color,
+            labelTint: widget.labelColor,
+            selectedLabelTint: widget.selectedLabelColor,
+          )..addAll({
+            if (widget.iconSize != null) 'iconSize': widget.iconSize,
+            if (widget.iconColor != null)
+              'iconColor': resolveColorToArgb(widget.iconColor, context),
+            if (widget.iconPaletteColors != null)
+              'iconPaletteColors': widget.iconPaletteColors!
+                  .map((c) => resolveColorToArgb(c, context))
+                  .toList(),
+            if (widget.iconGradientEnabled != null)
+              'iconGradientEnabled': widget.iconGradientEnabled,
+            if (widget.iconRenderingMode != null)
+              'iconRenderingMode': widget.iconRenderingMode!.name,
+          }),
       if (widget.sfSymbols != null)
         'sfSymbols': widget.sfSymbols!.map((e) => e.name).toList(),
       if (widget.sfSymbols != null)
@@ -269,6 +287,11 @@ class _CNSegmentedControlState extends State<CNSegmentedControl>
     _lastEnabled = widget.enabled;
     _lastIsDark = _isDark;
     _lastTint = resolveColorToArgb(widget.color, context);
+    _lastLabelTint = resolveColorToArgb(widget.labelColor, context);
+    _lastSelectedLabelTint = resolveColorToArgb(
+      widget.selectedLabelColor,
+      context,
+    );
   }
 
   Future<void> _syncPropsToNativeIfNeeded() async {
@@ -276,6 +299,11 @@ class _CNSegmentedControlState extends State<CNSegmentedControl>
     if (channel == null) return;
 
     final tint = resolveColorToArgb(widget.color, context);
+    final labelTint = resolveColorToArgb(widget.labelColor, context);
+    final selectedLabelTint = resolveColorToArgb(
+      widget.selectedLabelColor,
+      context,
+    );
 
     if (_lastEnabled != widget.enabled) {
       await channel.invokeMethod('setEnabled', {'enabled': widget.enabled});
@@ -287,9 +315,18 @@ class _CNSegmentedControlState extends State<CNSegmentedControl>
       });
       _lastSelected = widget.selectedIndex;
     }
-    if (_lastTint != tint && tint != null) {
-      await channel.invokeMethod('setStyle', {'tint': tint});
+    if ((_lastTint != tint && tint != null) ||
+        (_lastLabelTint != labelTint && labelTint != null) ||
+        (_lastSelectedLabelTint != selectedLabelTint &&
+            selectedLabelTint != null)) {
+      await channel.invokeMethod('setStyle', {
+        if (tint != null) 'tint': tint,
+        if (labelTint != null) 'labelTint': labelTint,
+        if (selectedLabelTint != null) 'selectedLabelTint': selectedLabelTint,
+      });
       _lastTint = tint;
+      _lastLabelTint = labelTint;
+      _lastSelectedLabelTint = selectedLabelTint;
     }
   }
 
@@ -310,13 +347,27 @@ class _CNSegmentedControlState extends State<CNSegmentedControl>
     if (channel == null) return;
     final isDark = _isDark;
     final tint = resolveColorToArgb(widget.color, context);
+    final labelTint = resolveColorToArgb(widget.labelColor, context);
+    final selectedLabelTint = resolveColorToArgb(
+      widget.selectedLabelColor,
+      context,
+    );
     if (_lastIsDark != isDark) {
       await channel.invokeMethod('setBrightness', {'isDark': isDark});
       _lastIsDark = isDark;
     }
-    if (_lastTint != tint && tint != null) {
-      await channel.invokeMethod('setStyle', {'tint': tint});
+    if ((_lastTint != tint && tint != null) ||
+        (_lastLabelTint != labelTint && labelTint != null) ||
+        (_lastSelectedLabelTint != selectedLabelTint &&
+            selectedLabelTint != null)) {
+      await channel.invokeMethod('setStyle', {
+        if (tint != null) 'tint': tint,
+        if (labelTint != null) 'labelTint': labelTint,
+        if (selectedLabelTint != null) 'selectedLabelTint': selectedLabelTint,
+      });
       _lastTint = tint;
+      _lastLabelTint = labelTint;
+      _lastSelectedLabelTint = selectedLabelTint;
     }
   }
 }

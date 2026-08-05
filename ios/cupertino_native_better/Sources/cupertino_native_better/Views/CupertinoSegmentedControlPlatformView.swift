@@ -17,6 +17,8 @@ class CupertinoSegmentedControlPlatformView: NSObject, FlutterPlatformView {
   private var defaultIconPalette: [UIColor] = []
   private var defaultIconRenderingMode: String? = nil
   private var defaultIconGradientEnabled: Bool = false
+  private var labelColor: UIColor? = nil
+  private var selectedLabelColor: UIColor? = nil
 
   init(frame: CGRect, viewId: Int64, args: Any?, messenger: FlutterBinaryMessenger) {
     self.channel = FlutterMethodChannel(name: "CupertinoNativeSegmentedControl_\(viewId)", binaryMessenger: messenger)
@@ -53,6 +55,8 @@ class CupertinoSegmentedControlPlatformView: NSObject, FlutterPlatformView {
       if let v = dict["isDark"] as? NSNumber { isDark = v.boolValue }
       if let style = dict["style"] as? [String: Any] {
         if let n = style["tint"] as? NSNumber { tint = Self.colorFromARGB(n.intValue) }
+        if let n = style["labelTint"] as? NSNumber { self.labelColor = Self.colorFromARGB(n.intValue) }
+        if let n = style["selectedLabelTint"] as? NSNumber { self.selectedLabelColor = Self.colorFromARGB(n.intValue) }
         if let n = style["iconColor"] as? NSNumber { self.defaultIconColor = Self.colorFromARGB(n.intValue) }
         if let s = style["iconSize"] as? NSNumber { self.defaultIconSize = CGFloat(truncating: s) }
         if let arr = style["iconPaletteColors"] as? [NSNumber] { self.defaultIconPalette = arr.map { Self.colorFromARGB($0.intValue) } }
@@ -74,6 +78,7 @@ class CupertinoSegmentedControlPlatformView: NSObject, FlutterPlatformView {
     control.selectedSegmentIndex = selectedIndex
     control.isEnabled = enabled
     if #available(iOS 13.0, *), let c = tint { control.selectedSegmentTintColor = c }
+    self.applyLabelColors()
 
     control.translatesAutoresizingMaskIntoConstraints = false
     container.addSubview(control)
@@ -114,6 +119,9 @@ class CupertinoSegmentedControlPlatformView: NSObject, FlutterPlatformView {
               self.control.selectedSegmentTintColor = Self.colorFromARGB(n.intValue)
             }
           }
+          if let n = args["labelTint"] as? NSNumber { self.labelColor = Self.colorFromARGB(n.intValue) }
+          if let n = args["selectedLabelTint"] as? NSNumber { self.selectedLabelColor = Self.colorFromARGB(n.intValue) }
+          self.applyLabelColors()
           if let n = args["iconColor"] as? NSNumber { self.defaultIconColor = Self.colorFromARGB(n.intValue) }
           if let s = args["iconSize"] as? NSNumber { self.defaultIconSize = CGFloat(truncating: s) }
           self.rebuildSegments()
@@ -150,6 +158,19 @@ class CupertinoSegmentedControlPlatformView: NSObject, FlutterPlatformView {
 
   @objc private func onChanged(_ sender: UISegmentedControl) {
     channel.invokeMethod("valueChanged", arguments: ["index": sender.selectedSegmentIndex])
+  }
+
+  /// Overrides the system default label color (which otherwise just follows
+  /// light/dark mode regardless of `selectedSegmentTintColor`) so a custom
+  /// tint doesn't end up with unreadable contrast against it — e.g. a bright
+  /// background tint paired with the system's always-black light-mode text.
+  private func applyLabelColors() {
+    if let lc = labelColor {
+      control.setTitleTextAttributes([.foregroundColor: lc], for: .normal)
+    }
+    if let slc = selectedLabelColor {
+      control.setTitleTextAttributes([.foregroundColor: slc], for: .selected)
+    }
   }
 
   // Use shared utility functions
