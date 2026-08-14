@@ -628,7 +628,17 @@ class CupertinoButtonPlatformView: NSObject, FlutterPlatformView {
       let uiWeight = Self.uiFontWeight(fromFlutterValue: weight)
       let resolvedFont: UIFont
       if let f = family {
-        let descriptor = UIFontDescriptor(name: f, size: pointSize)
+        // Match by `.family` (not `.name`, which requires an exact
+        // PostScript name like "SpaceGrotesk-Bold") so a `.traits` weight
+        // can steer CoreText toward the closest registered face in that
+        // family — otherwise `labelFontWeight` was silently ignored
+        // whenever `labelFontFamily` was also set.
+        var descriptor = UIFontDescriptor(fontAttributes: [.family: f])
+        if let w = uiWeight {
+          descriptor = descriptor.addingAttributes([
+            .traits: [UIFontDescriptor.TraitKey.weight: w.rawValue]
+          ])
+        }
         resolvedFont = UIFont(descriptor: descriptor, size: pointSize)
       } else if let w = uiWeight {
         resolvedFont = UIFont.systemFont(ofSize: pointSize, weight: w)
