@@ -903,6 +903,7 @@ class _CNTabBarState extends State<CNTabBar> {
     _lastBg = resolveColorToArgb(widget.backgroundColor, context);
     _lastIsDark = _isDark;
     _requestIntrinsicSize();
+    _requestSearchItemFrame();
     _cacheItems();
     _lastSplit = widget.split;
     _lastRightCount = widget.rightCount;
@@ -1216,6 +1217,51 @@ class _CNTabBarState extends State<CNTabBar> {
         if (w != null && w > 0) _intrinsicWidth = w;
       });
     } catch (_) {}
+  }
+
+  /// Pulls the native search orb's frame.
+  ///
+  /// Counterpart to the `searchItemFrameChanged` push. The push can fire
+  /// during the platform view's first layout pass, which may happen before
+  /// this handler is attached in [_onCreated] — that message is dropped, and
+  /// the native dedupe then suppresses every resend because the frame never
+  /// changes again. The symptom is an overlay that stays invisible until
+  /// something destroys and recreates the platform view (navigating away and
+  /// back). Pulling on creation guarantees an initial value.
+  ///
+  /// Retries because the orb has no frame until UIKit has laid the bar out,
+  /// which is not guaranteed to have happened by the time the view is created.
+  Future<void> _requestSearchItemFrame() async {
+    if (widget.searchItem?.overlay == null) return;
+    const delays = [
+      Duration.zero,
+      Duration(milliseconds: 50),
+      Duration(milliseconds: 250),
+    ];
+    for (final delay in delays) {
+      if (delay != Duration.zero) await Future<void>.delayed(delay);
+      if (!mounted || _searchItemFrame != null) return;
+      final ch = _channel;
+      if (ch == null) return;
+      try {
+        final res = await ch.invokeMethod('getSearchItemFrame');
+        if (!mounted || res == null) continue;
+        final map = (res as Map).cast<String, dynamic>();
+        final x = (map['x'] as num?)?.toDouble();
+        final y = (map['y'] as num?)?.toDouble();
+        final w = (map['width'] as num?)?.toDouble();
+        final h = (map['height'] as num?)?.toDouble();
+        if (x == null || y == null || w == null || h == null) continue;
+        if (w <= 0 || h <= 0) continue;
+        final rect = Rect.fromLTWH(x, y, w, h);
+        if (_searchItemFrame != rect) {
+          setState(() => _searchItemFrame = rect);
+        }
+        return;
+      } catch (_) {
+        // View may not be ready yet; fall through to the next retry.
+      }
+    }
   }
 
   /// Builds the Flutter fallback for non-iOS 26+ platforms.

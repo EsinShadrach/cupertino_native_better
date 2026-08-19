@@ -396,8 +396,8 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
     /// take the trailing-most subview that looks like an item button:
     /// non-empty, and clearly narrower than the bar itself (which filters out
     /// full-width background and separator views).
-    private func reportSearchItemFrameIfNeeded() {
-        guard searchOverlay, let bar = tabBar, bar.bounds.width > 0 else { return }
+    private func currentSearchItemFrame() -> CGRect? {
+        guard let bar = tabBar, bar.bounds.width > 0 else { return nil }
 
         let candidates = bar.subviews.filter { view in
             view.frame.width > 0
@@ -405,10 +405,23 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
                 && view.frame.width < bar.bounds.width * 0.9
                 && !view.isHidden
         }
-        guard let orb = candidates.max(by: { $0.frame.minX < $1.frame.minX }) else { return }
+        guard let orb = candidates.max(by: { $0.frame.minX < $1.frame.minX }) else { return nil }
 
         let frameInContainer = container.convert(orb.bounds, from: orb)
-        guard !frameInContainer.isEmpty else { return }
+        return frameInContainer.isEmpty ? nil : frameInContainer
+    }
+
+    private static func framePayload(_ rect: CGRect) -> [String: Double] {
+        return [
+            "x": Double(rect.minX),
+            "y": Double(rect.minY),
+            "width": Double(rect.width),
+            "height": Double(rect.height),
+        ]
+    }
+
+    private func reportSearchItemFrameIfNeeded() {
+        guard searchOverlay, let frameInContainer = currentSearchItemFrame() else { return }
 
         // Only chatter when it actually moved — layoutSubviews fires often.
         if !lastReportedSearchFrame.isNull,
@@ -420,12 +433,7 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
         }
         lastReportedSearchFrame = frameInContainer
 
-        channel.invokeMethod("searchItemFrameChanged", arguments: [
-            "x": Double(frameInContainer.minX),
-            "y": Double(frameInContainer.minY),
-            "width": Double(frameInContainer.width),
-            "height": Double(frameInContainer.height),
-        ])
+        channel.invokeMethod("searchItemFrameChanged", arguments: Self.framePayload(frameInContainer))
     }
 
     /// Applies `labelFontFamily`/`labelFontSize` to a single item.
@@ -463,6 +471,20 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
                     result(["width": Double(self.container.bounds.width), "height": Double(dynamicHeight)])
                 } else {
                     result(["width": Double(self.container.bounds.width), "height": 50.0])
+                }
+
+            case "getSearchItemFrame":
+                // Pull counterpart to the `searchItemFrameChanged` push. The
+                // push can fire during the first layout pass, which may land
+                // before Dart has attached its method-call handler — that
+                // message is simply dropped, and the dedupe below would then
+                // suppress every resend because the frame never changes. Dart
+                // calls this on creation so it always gets an initial value.
+                if let rect = self.currentSearchItemFrame() {
+                    self.lastReportedSearchFrame = rect
+                    result(Self.framePayload(rect))
+                } else {
+                    result(nil)
                 }
 
             case "setSelectedIndex":
