@@ -38,6 +38,8 @@ class CNTabBarSearchItem {
     this.onSearchActiveChanged,
     this.automaticallyActivatesSearch = true,
     this.style = const CNTabBarSearchStyle(),
+    this.overlay,
+    this.onTap,
   });
 
   /// The icon to display in the search tab button (collapsed state).
@@ -86,6 +88,27 @@ class CNTabBarSearchItem {
   /// Visual styling options for the search tab.
   final CNTabBarSearchStyle style;
 
+  /// A Flutter widget drawn on top of the native search orb.
+  ///
+  /// The orb slot is a `UITabBarItem`, which accepts only a `UIImage` and a
+  /// title — there is no way to host a Flutter subtree inside it. So when
+  /// this is set the native icon and label are blanked out and the widget is
+  /// positioned over the orb instead, using the frame the platform view
+  /// reports after each layout pass. The orb itself, its Liquid Glass, and
+  /// the native split spacing of the bar are all unchanged, and the widget
+  /// stays live — animations keep running, unlike a rasterized icon.
+  ///
+  /// The overlay does not receive pointer events: the native orb still owns
+  /// the tap, and reports it through [onTap]. When [overlay] is set, tapping
+  /// does not expand the search field.
+  final Widget? overlay;
+
+  /// Called when the search orb is tapped while [overlay] is set.
+  ///
+  /// Lets the orb act as an ordinary button rather than a search affordance.
+  /// Ignored when [overlay] is null.
+  final VoidCallback? onTap;
+
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
@@ -95,7 +118,8 @@ class CNTabBarSearchItem {
         other.label == label &&
         other.placeholder == placeholder &&
         other.automaticallyActivatesSearch == automaticallyActivatesSearch &&
-        other.style == style;
+        other.style == style &&
+        other.overlay == overlay;
   }
 
   @override
@@ -106,6 +130,7 @@ class CNTabBarSearchItem {
     placeholder,
     automaticallyActivatesSearch,
     style,
+    overlay,
   );
 }
 

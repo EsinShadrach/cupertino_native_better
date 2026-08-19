@@ -294,6 +294,11 @@ class _CNTabBarState extends State<CNTabBar> {
   // Search state
   bool _isSearchActive = false;
   String _searchText = '';
+
+  /// Frame of the native search orb, in the platform view's coordinate space,
+  /// as reported by the Swift side after each layout pass. Only populated
+  /// when `searchItem.overlay` is set. Null until the first report lands.
+  Rect? _searchItemFrame;
   FocusNode? _searchFocusNode;
 
   // Issue #31: auto-hide while a modal/sheet is presented over this route.
@@ -744,6 +749,7 @@ class _CNTabBarState extends State<CNTabBar> {
         }),
       if (_hasSearch) ...{
         'hasSearch': true,
+        'searchOverlay': widget.searchItem!.overlay != null,
         'searchPlaceholder': widget.searchItem!.placeholder,
         'searchLabel': widget.searchItem!.label,
         'searchSymbol': widget.searchItem!.icon?.name ?? 'magnifyingglass',
@@ -846,14 +852,45 @@ class _CNTabBarState extends State<CNTabBar> {
           );
 
     final h = widget.height ?? _intrinsicHeight ?? 50.0;
+    final content = _withSearchOverlay(platformView);
     if (!widget.split && widget.shrinkCentered) {
       final w = _intrinsicWidth;
       return ClipRect(
-        child: SizedBox(height: h, width: w, child: platformView),
+        child: SizedBox(height: h, width: w, child: content),
       );
     }
     return ClipRect(
-      child: SizedBox(height: h, child: platformView),
+      child: SizedBox(height: h, child: content),
+    );
+  }
+
+  /// Stacks `searchItem.overlay` on top of the native search orb.
+  ///
+  /// The orb is a `UITabBarItem` and cannot contain a Flutter subtree, so the
+  /// widget is drawn over it instead, at the frame the Swift side reports.
+  /// Returns [platformView] untouched when there is no overlay, or before the
+  /// first frame report arrives.
+  Widget _withSearchOverlay(Widget platformView) {
+    final overlay = widget.searchItem?.overlay;
+    final frame = _searchItemFrame;
+    if (overlay == null || frame == null) return platformView;
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Positioned.fill(child: platformView),
+        Positioned(
+          left: frame.left,
+          top: frame.top,
+          width: frame.width,
+          height: frame.height,
+          // Purely visual: the native orb underneath still owns the tap and
+          // reports it via `searchActiveChanged` -> `searchItem.onTap`.
+          // Letting Flutter take the pointer here would also swallow the
+          // Liquid Glass press feedback.
+          child: IgnorePointer(child: Center(child: overlay)),
+        ),
+      ],
     );
   }
 
@@ -933,9 +970,27 @@ class _CNTabBarState extends State<CNTabBar> {
       _searchText = text;
       widget.searchItem?.onSearchChanged?.call(text);
       widget.searchController?.updateFromNative(text: text);
+    } else if (call.method == 'searchItemFrameChanged') {
+      final args = call.arguments as Map?;
+      final x = (args?['x'] as num?)?.toDouble();
+      final y = (args?['y'] as num?)?.toDouble();
+      final w = (args?['width'] as num?)?.toDouble();
+      final h = (args?['height'] as num?)?.toDouble();
+      if (x != null && y != null && w != null && h != null && w > 0 && h > 0) {
+        final rect = Rect.fromLTWH(x, y, w, h);
+        if (mounted && _searchItemFrame != rect) {
+          setState(() => _searchItemFrame = rect);
+        }
+      }
     } else if (call.method == 'searchActiveChanged') {
       final args = call.arguments as Map?;
       final isActive = args?['isActive'] as bool? ?? false;
+      // With an overlay the orb is a plain button, not a search affordance:
+      // fire onTap and leave the search field alone.
+      if (widget.searchItem?.overlay != null) {
+        if (isActive) widget.searchItem?.onTap?.call();
+        return null;
+      }
       setState(() => _isSearchActive = isActive);
       widget.searchItem?.onSearchActiveChanged?.call(isActive);
       widget.searchController?.updateFromNative(isActive: isActive);

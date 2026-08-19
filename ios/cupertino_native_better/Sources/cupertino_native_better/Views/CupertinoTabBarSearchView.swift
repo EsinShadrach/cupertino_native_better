@@ -1,6 +1,19 @@
 import Flutter
 import UIKit
 
+/// A plain container view that reports every layout pass.
+///
+/// Needed because the search orb's frame is only knowable after UIKit has
+/// laid the bar out, and there is no public notification for that.
+class CNLayoutNotifyingView: UIView {
+    var onLayout: (() -> Void)?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayout?()
+    }
+}
+
 /// iOS 26+ native tab bar with search support.
 /// Uses UITabBar with UITabBarSystemItem.search for native liquid glass morphing effect.
 @available(iOS 26.0, *)
@@ -23,8 +36,18 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
     private static let defaultIconSize: CGFloat = 25.0
 
     private let channel: FlutterMethodChannel
-    private let container: UIView
+    private let container: CNLayoutNotifyingView
     private var tabBar: UITabBar?
+
+    /// When true, Dart is drawing its own Flutter widget over the search orb,
+    /// so the orb's own icon is blanked out and its frame is reported back on
+    /// every layout pass. The orb itself (and its Liquid Glass) still renders
+    /// natively, and it still owns the tap.
+    private var searchOverlay: Bool = false
+
+    /// Last frame reported to Dart, to avoid spamming the channel on every
+    /// layout pass when nothing moved.
+    private var lastReportedSearchFrame: CGRect = .null
 
     // State
     private var currentLabels: [String] = []
@@ -62,7 +85,7 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
 
     init(frame: CGRect, viewId: Int64, args: Any?, messenger: FlutterBinaryMessenger) {
         self.channel = FlutterMethodChannel(name: "CupertinoNativeTabBar_\(viewId)", binaryMessenger: messenger)
-        self.container = UIView(frame: frame)
+        self.container = CNLayoutNotifyingView(frame: frame)
 
         super.init()
 
@@ -89,6 +112,7 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
             }
             searchPlaceholder = (dict["searchPlaceholder"] as? String) ?? "Search"
             searchLabel = (dict["searchLabel"] as? String) ?? "Search"
+            searchOverlay = (dict["searchOverlay"] as? NSNumber)?.boolValue ?? false
         }
 
         container.backgroundColor = .clear
@@ -108,6 +132,10 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
 
         setupUI()
         setupMethodChannel()
+
+        container.onLayout = { [weak self] in
+            self?.reportSearchItemFrameIfNeeded()
+        }
     }
 
     // MARK: - Param parsing
@@ -256,6 +284,10 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
     }
 
     private func buildTabItems() -> [UITabBarItem] {
+        // Items are about to be replaced, so the orb's frame has to be
+        // re-reported even if it lands in the same place.
+        lastReportedSearchFrame = .null
+
         var items: [UITabBarItem] = []
         let count = max(currentLabels.count, currentSymbols.count)
 
@@ -329,14 +361,71 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
 
         // Add search tab using UITabBarSystemItem.search for native iOS 26 liquid glass styling
         let searchItem = UITabBarItem(tabBarSystemItem: .search, tag: 9999)
-        if !searchLabel.isEmpty {
+        if searchOverlay {
+            // Dart paints a Flutter widget over this orb, so blank the
+            // magnifying glass and the label. Using a transparent image of the
+            // usual icon size (rather than nil) keeps UIKit sizing the orb
+            // exactly as it would with a real icon — nil collapses it.
+            searchItem.image = Self.transparentImage(side: Self.defaultIconSize)
+            searchItem.selectedImage = searchItem.image
+            searchItem.title = nil
+        } else if !searchLabel.isEmpty {
             searchItem.title = searchLabel
+            applyLabelFont(to: searchItem)
         }
-        applyLabelFont(to: searchItem)
         items.append(searchItem)
         searchItemIndex = items.count - 1
 
         return items
+    }
+
+    /// A fully transparent square image, used to reserve the orb's icon slot
+    /// without drawing anything into it.
+    private static func transparentImage(side: CGFloat) -> UIImage {
+        let size = CGSize(width: side, height: side)
+        return UIGraphicsImageRenderer(size: size).image { _ in }
+            .withRenderingMode(.alwaysOriginal)
+    }
+
+    /// Locates the search orb and reports its frame (in the container's
+    /// coordinate space) to Dart, so a Flutter widget can be positioned
+    /// exactly over it.
+    ///
+    /// The orb is found by scanning the bar's subviews rather than through
+    /// any API — UIKit exposes no public handle on a tab bar item's view. We
+    /// take the trailing-most subview that looks like an item button:
+    /// non-empty, and clearly narrower than the bar itself (which filters out
+    /// full-width background and separator views).
+    private func reportSearchItemFrameIfNeeded() {
+        guard searchOverlay, let bar = tabBar, bar.bounds.width > 0 else { return }
+
+        let candidates = bar.subviews.filter { view in
+            view.frame.width > 0
+                && view.frame.height > 0
+                && view.frame.width < bar.bounds.width * 0.9
+                && !view.isHidden
+        }
+        guard let orb = candidates.max(by: { $0.frame.minX < $1.frame.minX }) else { return }
+
+        let frameInContainer = container.convert(orb.bounds, from: orb)
+        guard !frameInContainer.isEmpty else { return }
+
+        // Only chatter when it actually moved — layoutSubviews fires often.
+        if !lastReportedSearchFrame.isNull,
+           abs(frameInContainer.minX - lastReportedSearchFrame.minX) < 0.5,
+           abs(frameInContainer.minY - lastReportedSearchFrame.minY) < 0.5,
+           abs(frameInContainer.width - lastReportedSearchFrame.width) < 0.5,
+           abs(frameInContainer.height - lastReportedSearchFrame.height) < 0.5 {
+            return
+        }
+        lastReportedSearchFrame = frameInContainer
+
+        channel.invokeMethod("searchItemFrameChanged", arguments: [
+            "x": Double(frameInContainer.minX),
+            "y": Double(frameInContainer.minY),
+            "width": Double(frameInContainer.width),
+            "height": Double(frameInContainer.height),
+        ])
     }
 
     /// Applies `labelFontFamily`/`labelFontSize` to a single item.
