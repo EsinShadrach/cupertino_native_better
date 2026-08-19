@@ -5,6 +5,23 @@ import UIKit
 /// Uses UITabBar with UITabBarSystemItem.search for native liquid glass morphing effect.
 @available(iOS 26.0, *)
 class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBarDelegate {
+    /// Vertical room reserved above the bar for the Liquid Glass selection
+    /// pill (and the floating search orb), both of which draw past the
+    /// UITabBar's top edge. The bar is pinned this far below
+    /// `container.topAnchor` and `getIntrinsicSize` reports
+    /// `barHeight + pillTopRoom`, so Flutter's `ClipRect`/`SizedBox` wrapper
+    /// leaves room for the overflow instead of cropping it.
+    ///
+    /// Must stay in sync with the identical constant in
+    /// `CupertinoTabBarPlatformView` — otherwise adding a `searchItem`
+    /// shifts the whole bar up by this amount relative to the non-search
+    /// bar, since the two views would report different intrinsic heights.
+    private static let pillTopRoom: CGFloat = 14.0
+
+    /// UITabBar's nominal icon edge, used to grow the reported height when
+    /// larger custom icons are supplied. Mirrors `CupertinoTabBarPlatformView`.
+    private static let defaultIconSize: CGFloat = 25.0
+
     private let channel: FlutterMethodChannel
     private let container: UIView
     private var tabBar: UITabBar?
@@ -13,7 +30,27 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
     private var currentLabels: [String] = []
     private var currentSymbols: [String] = []
     private var currentActiveSymbols: [String] = []
+    private var currentBadges: [String] = []
     private var currentBadgeCounts: [Int?] = []
+
+    // Custom icon sources, in resolution priority order:
+    // imageAssetData > imageAssetPaths > customIconBytes > SF Symbol.
+    // Kept identical to `CupertinoTabBarPlatformView.buildItems` so a
+    // `CNTabBarItem` renders the same with or without a `searchItem`.
+    private var currentCustomIconBytes: [Data?] = []
+    private var currentActiveCustomIconBytes: [Data?] = []
+    private var currentImageAssetPaths: [String] = []
+    private var currentActiveImageAssetPaths: [String] = []
+    private var currentImageAssetData: [Data?] = []
+    private var currentActiveImageAssetData: [Data?] = []
+    private var currentImageAssetFormats: [String] = []
+    private var currentActiveImageAssetFormats: [String] = []
+    private var currentIconSizes: [NSNumber?] = []
+    private var iconScale: CGFloat = UIScreen.main.scale
+
+    private var labelFontFamily: String? = nil
+    private var labelFontSize: CGFloat = 0 // 0 means system default (~10pt)
+
     private var selectedIndex: Int = 0
     private var tintColor: UIColor?
     private var unselectedTintColor: UIColor?
@@ -31,12 +68,7 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
 
         // Parse creation params
         if let dict = args as? [String: Any] {
-            currentLabels = (dict["labels"] as? [String]) ?? []
-            currentSymbols = (dict["sfSymbols"] as? [String]) ?? []
-            currentActiveSymbols = (dict["activeSfSymbols"] as? [String]) ?? []
-            if let badgeData = dict["badgeCounts"] as? [NSNumber?] {
-                currentBadgeCounts = badgeData.map { $0?.intValue }
-            }
+            parseItemParams(dict)
             if let v = dict["selectedIndex"] as? NSNumber {
                 selectedIndex = v.intValue
             }
@@ -50,6 +82,10 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
                 if let n = style["unselectedTint"] as? NSNumber {
                     unselectedTintColor = ImageUtils.colorFromARGB(n.intValue)
                 }
+            }
+            if let ff = dict["labelFontFamily"] as? String, !ff.isEmpty { labelFontFamily = ff }
+            if let fs = dict["labelFontSize"] as? NSNumber, fs.doubleValue > 0 {
+                labelFontSize = CGFloat(truncating: fs)
             }
             searchPlaceholder = (dict["searchPlaceholder"] as? String) ?? "Search"
             searchLabel = (dict["searchLabel"] as? String) ?? "Search"
@@ -72,6 +108,54 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
 
         setupUI()
         setupMethodChannel()
+    }
+
+    // MARK: - Param parsing
+
+    /// Reads every item-describing key out of a creation-params / `setItems`
+    /// dictionary. Shared by `init` and the `setItems` channel handler so the
+    /// two can't drift apart (the original only read labels/symbols in both,
+    /// silently dropping custom icons and image assets).
+    private func parseItemParams(_ dict: [String: Any]) {
+        currentLabels = (dict["labels"] as? [String]) ?? []
+        currentSymbols = (dict["sfSymbols"] as? [String]) ?? []
+        currentActiveSymbols = (dict["activeSfSymbols"] as? [String]) ?? []
+
+        // Dart sends `badges` as pre-formatted strings; `badgeCounts` is
+        // accepted too for callers that send raw counts.
+        currentBadges = (dict["badges"] as? [String]) ?? []
+        if let badgeData = dict["badgeCounts"] as? [NSNumber?] {
+            currentBadgeCounts = badgeData.map { $0?.intValue }
+        }
+
+        if let bytesArray = dict["customIconBytes"] as? [FlutterStandardTypedData?] {
+            currentCustomIconBytes = bytesArray.map { $0?.data }
+        }
+        if let bytesArray = dict["activeCustomIconBytes"] as? [FlutterStandardTypedData?] {
+            currentActiveCustomIconBytes = bytesArray.map { $0?.data }
+        }
+        currentImageAssetPaths = (dict["imageAssetPaths"] as? [String]) ?? []
+        currentActiveImageAssetPaths = (dict["activeImageAssetPaths"] as? [String]) ?? []
+        if let bytesArray = dict["imageAssetData"] as? [FlutterStandardTypedData?] {
+            currentImageAssetData = bytesArray.map { $0?.data }
+        }
+        if let bytesArray = dict["activeImageAssetData"] as? [FlutterStandardTypedData?] {
+            currentActiveImageAssetData = bytesArray.map { $0?.data }
+        }
+        currentImageAssetFormats = (dict["imageAssetFormats"] as? [String]) ?? []
+        currentActiveImageAssetFormats = (dict["activeImageAssetFormats"] as? [String]) ?? []
+        currentIconSizes = (dict["sfSymbolSizes"] as? [NSNumber?]) ?? []
+        if let scale = dict["iconScale"] as? NSNumber {
+            iconScale = CGFloat(truncating: scale)
+        }
+
+        // SVG assets have to be rasterized before first use or the tab bar
+        // lays out with nil images.
+        let allAssetPaths = Set(currentImageAssetPaths + currentActiveImageAssetPaths)
+            .filter { !$0.isEmpty }
+        if !allAssetPaths.isEmpty {
+            SVGImageLoader.shared.preloadAssetsFromPaths(Array(allAssetPaths))
+        }
     }
 
     private func setupUI() {
@@ -117,12 +201,58 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
 
         container.addSubview(bar)
 
+        // Pin the bar `pillTopRoom` below the container's top edge — see the
+        // constant's doc comment. `getIntrinsicSize` adds the same amount so
+        // the bar lands in exactly the same place as the non-search bar.
         NSLayoutConstraint.activate([
             bar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             bar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            bar.topAnchor.constraint(equalTo: container.topAnchor),
+            bar.topAnchor.constraint(equalTo: container.topAnchor, constant: Self.pillTopRoom),
             bar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
+    }
+
+    // MARK: - Item building
+
+    /// Resolves the icon for item `i`, honouring the same source priority as
+    /// the non-search bar: image asset data > image asset path > rendered
+    /// custom icon bytes > SF Symbol.
+    private func resolveImage(
+        at i: Int,
+        assetData: [Data?],
+        assetPaths: [String],
+        assetFormats: [String],
+        customBytes: [Data?],
+        symbols: [String],
+        size: CGSize?
+    ) -> UIImage? {
+        if i < assetData.count, let data = assetData[i] {
+            return ImageUtils.createImageFromData(
+                data,
+                format: (i < assetFormats.count) ? assetFormats[i] : nil,
+                size: size,
+                scale: iconScale
+            )
+        }
+        if i < assetPaths.count, !assetPaths[i].isEmpty {
+            return ImageUtils.loadFlutterAsset(assetPaths[i], size: size)
+        }
+        if i < customBytes.count, let data = customBytes[i] {
+            // Template mode so bar.tintColor / unselectedItemTintColor drive
+            // the colour, matching the non-search bar.
+            return UIImage(data: data, scale: iconScale)?.withRenderingMode(.alwaysTemplate)
+        }
+        if i < symbols.count, !symbols[i].isEmpty {
+            // Template mode so tintColor applies, as before.
+            if let sizeNum = (i < currentIconSizes.count) ? currentIconSizes[i] : nil,
+               sizeNum.doubleValue > 0 {
+                let config = UIImage.SymbolConfiguration(pointSize: CGFloat(sizeNum.doubleValue))
+                return UIImage(systemName: symbols[i], withConfiguration: config)?
+                    .withRenderingMode(.alwaysTemplate)
+            }
+            return UIImage(systemName: symbols[i])?.withRenderingMode(.alwaysTemplate)
+        }
+        return nil
     }
 
     private func buildTabItems() -> [UITabBarItem] {
@@ -130,37 +260,68 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
         let count = max(currentLabels.count, currentSymbols.count)
 
         for i in 0..<count {
-            let title = i < currentLabels.count ? currentLabels[i] : nil
-            let symbol = i < currentSymbols.count ? currentSymbols[i] : "circle"
-            let activeSymbol = i < currentActiveSymbols.count && !currentActiveSymbols[i].isEmpty
-                ? currentActiveSymbols[i] : symbol
-            let badgeCount = i < currentBadgeCounts.count ? currentBadgeCounts[i] : nil
+            let title = i < currentLabels.count && !currentLabels[i].isEmpty ? currentLabels[i] : nil
 
-            var image: UIImage? = nil
-            var selectedImage: UIImage? = nil
-
-            // iOS 26+: Use different rendering modes for selected/unselected
-            if let unselTint = unselectedTintColor {
-                // Unselected: Apply custom color
-                if let originalImage = UIImage(systemName: symbol) {
-                    image = originalImage.withTintColor(unselTint, renderingMode: .alwaysOriginal)
+            let imgSize: CGSize? = (i < currentIconSizes.count)
+                ? currentIconSizes[i].flatMap {
+                    $0.doubleValue > 0
+                        ? CGSize(width: $0.doubleValue, height: $0.doubleValue)
+                        : nil
                 }
-            } else {
-                // No custom color - use template mode to respect theme
-                image = UIImage(systemName: symbol)?.withRenderingMode(.alwaysTemplate)
-            }
+                : nil
 
-            // Selected: Use template rendering so tintColor applies
-            selectedImage = UIImage(systemName: activeSymbol)?.withRenderingMode(.alwaysTemplate)
+            var image = resolveImage(
+                at: i,
+                assetData: currentImageAssetData,
+                assetPaths: currentImageAssetPaths,
+                assetFormats: currentImageAssetFormats,
+                customBytes: currentCustomIconBytes,
+                symbols: currentSymbols,
+                size: imgSize
+            )
+
+            let selectedImage = resolveImage(
+                at: i,
+                assetData: currentActiveImageAssetData,
+                assetPaths: currentActiveImageAssetPaths,
+                assetFormats: currentActiveImageAssetFormats,
+                customBytes: currentActiveCustomIconBytes,
+                symbols: currentActiveSymbols,
+                size: imgSize
+            ) ?? image
+
+            // iOS 26+: an explicit unselected tint has to be baked into the
+            // unselected image, since `unselectedItemTintColor` alone doesn't
+            // reliably apply under Liquid Glass. Restricted to template
+            // images (SF Symbols and rendered custom icons) — a colored
+            // image asset keeps its own colors, same as the non-search bar.
+            if let unselTint = unselectedTintColor,
+               let base = image,
+               base.renderingMode == .alwaysTemplate {
+                image = base.withTintColor(unselTint, renderingMode: .alwaysOriginal)
+            }
 
             let item = UITabBarItem(title: title, image: image, selectedImage: selectedImage)
             item.tag = i
 
-            // Set badge value if provided
-            if let count = badgeCount, count > 0 {
+            // Badge: prefer the pre-formatted string Dart sends, fall back to
+            // a raw count.
+            if i < currentBadges.count, !currentBadges[i].isEmpty {
+                item.badgeValue = currentBadges[i]
+            } else if i < currentBadgeCounts.count, let count = currentBadgeCounts[i], count > 0 {
                 item.badgeValue = count > 99 ? "99+" : String(count)
             } else {
                 item.badgeValue = nil
+            }
+
+            applyLabelFont(to: item)
+
+            // Push the title down when the icon is taller than stock, so the
+            // two don't overlap. Mirrors the non-search bar.
+            if let sizeNum = (i < currentIconSizes.count) ? currentIconSizes[i] : nil,
+               sizeNum.doubleValue > Double(Self.defaultIconSize) {
+                let offset = CGFloat(sizeNum.doubleValue) - Self.defaultIconSize
+                item.titlePositionAdjustment = UIOffset(horizontal: 0, vertical: offset)
             }
 
             items.append(item)
@@ -171,10 +332,26 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
         if !searchLabel.isEmpty {
             searchItem.title = searchLabel
         }
+        applyLabelFont(to: searchItem)
         items.append(searchItem)
         searchItemIndex = items.count - 1
 
         return items
+    }
+
+    /// Applies `labelFontFamily`/`labelFontSize` to a single item.
+    ///
+    /// Deliberately per-item rather than via `UITabBarAppearance`: this view
+    /// avoids setting an appearance at all because that overrides the iOS 26
+    /// Liquid Glass background, and item-level title attributes only take
+    /// effect precisely because no appearance is installed here.
+    private func applyLabelFont(to item: UITabBarItem) {
+        guard let fontFamily = labelFontFamily, !fontFamily.isEmpty else { return }
+        let size = labelFontSize > 0 ? labelFontSize : 10.0
+        let font = UIFont(name: fontFamily, size: size) ?? UIFont.systemFont(ofSize: size)
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
+        item.setTitleTextAttributes(attrs, for: .normal)
+        item.setTitleTextAttributes(attrs, for: .selected)
     }
 
     private func setupMethodChannel() {
@@ -185,7 +362,16 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
             case "getIntrinsicSize":
                 if let bar = self.tabBar {
                     let size = bar.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
-                    result(["width": Double(self.container.bounds.width), "height": Double(size.height)])
+                    // Grow for oversized icons, then add the pill/orb headroom
+                    // the layout constraints reserve above the bar. Without
+                    // this the reported height is `pillTopRoom` short and the
+                    // bar renders that much higher than the non-search bar.
+                    let maxIconSize = self.currentIconSizes
+                        .compactMap { $0.map { CGFloat(truncating: $0) } }
+                        .max() ?? Self.defaultIconSize
+                    let extraHeight = max(0, maxIconSize - Self.defaultIconSize)
+                    let dynamicHeight = size.height + extraHeight + Self.pillTopRoom
+                    result(["width": Double(self.container.bounds.width), "height": Double(dynamicHeight)])
                 } else {
                     result(["width": Double(self.container.bounds.width), "height": 50.0])
                 }
@@ -256,12 +442,7 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
 
             case "setItems":
                 if let args = call.arguments as? [String: Any] {
-                    self.currentLabels = (args["labels"] as? [String]) ?? []
-                    self.currentSymbols = (args["sfSymbols"] as? [String]) ?? []
-                    self.currentActiveSymbols = (args["activeSfSymbols"] as? [String]) ?? []
-                    if let badgeData = args["badgeCounts"] as? [NSNumber?] {
-                        self.currentBadgeCounts = badgeData.map { $0?.intValue }
-                    }
+                    self.parseItemParams(args)
 
                     self.tabBar?.items = self.buildTabItems()
 
@@ -276,6 +457,21 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
                 } else {
                     result(FlutterError(code: "bad_args", message: "Missing items", details: nil))
                 }
+
+            case "setLayout":
+                if let args = call.arguments as? [String: Any] {
+                    var needsRebuild = false
+                    if let ff = args["labelFontFamily"] as? String {
+                        self.labelFontFamily = ff.isEmpty ? nil : ff
+                        needsRebuild = true
+                    }
+                    if let fs = args["labelFontSize"] as? NSNumber, fs.doubleValue > 0 {
+                        self.labelFontSize = CGFloat(truncating: fs)
+                        needsRebuild = true
+                    }
+                    if needsRebuild { self.rebuildItemsWithCurrentColors() }
+                }
+                result(nil)
 
             case "setBadgeCounts":
                 if let args = call.arguments as? [String: Any],
@@ -301,7 +497,21 @@ class CupertinoTabBarSearchPlatformView: NSObject, FlutterPlatformView, UITabBar
                     result(FlutterError(code: "bad_args", message: "Missing badge counts", details: nil))
                 }
 
-            case "refresh", "setLabels", "setSfSymbols", "setBadges", "setLayout":
+            case "setBadges":
+                if let args = call.arguments as? [String: Any],
+                   let badges = args["badges"] as? [String] {
+                    self.currentBadges = badges
+                    if let bar = self.tabBar, let items = bar.items {
+                        for (index, item) in items.enumerated() where index < badges.count {
+                            item.badgeValue = badges[index].isEmpty ? nil : badges[index]
+                        }
+                    }
+                    result(nil)
+                } else {
+                    result(FlutterError(code: "bad_args", message: "Missing badges", details: nil))
+                }
+
+            case "refresh", "setLabels", "setSfSymbols":
                 result(nil)
 
             default:
