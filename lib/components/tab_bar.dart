@@ -115,6 +115,7 @@ class CNTabBar extends StatefulWidget {
     this.labelFontSize,
     this.autoHideOnModal = true,
     this.autoHideOnPageTransition = true,
+    this.animateItemChanges = false,
   }) : assert(items.length >= 2, 'Tab bar must have at least 2 items'),
        assert(
          items.length <= 5,
@@ -148,6 +149,18 @@ class CNTabBar extends StatefulWidget {
 
   /// Fixed height; if null uses intrinsic height reported by native view.
   final double? height;
+
+  /// Whether item changes after the first build are animated.
+  ///
+  /// Replacing a live bar's items — dropping the labels as a page
+  /// scrolls, swapping in a different icon set — is an unanimated UIKit
+  /// relayout, so the bar snaps to its new look. With this on, the swap
+  /// runs through `UITabBar.setItems(_:animated:)` and the height change
+  /// that comes with it is animated alongside.
+  ///
+  /// Off by default: a bar whose items never change after mount shouldn't
+  /// pay for an animation nobody sees.
+  final bool animateItemChanges;
 
   /// When true, splits items between left and right sections.
   ///
@@ -1128,6 +1141,7 @@ class _CNTabBarState extends State<CNTabBar> {
           'iconScale': iconScale,
           'selectedIndex': widget.currentIndex,
           'sfSymbolSizes': sizes,
+          'animated': widget.animateItemChanges,
         });
         _lastLabels = labels;
         _lastSymbols = symbols;

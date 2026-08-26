@@ -449,6 +449,13 @@ channel.setMethodCallHandler { [weak self] call, result in
         }
       case "setItems":
         if let args = call.arguments as? [String: Any] {
+          // Assigning `items` is an unanimated relayout: a bar whose items
+          // change while it's on screen — labels dropped as a page
+          // scrolls, an icon set swapped — snaps to the new look. Callers
+          // that change items mid-flight can ask for UIKit's own item
+          // transition instead. Off by default: a bar that only sets its
+          // items once shouldn't pay for an animation nobody sees.
+          let animated = (args["animated"] as? NSNumber)?.boolValue ?? false
           let labels = (args["labels"] as? [String]) ?? []
           let symbols = (args["sfSymbols"] as? [String]) ?? []
           let activeSymbols = (args["activeSfSymbols"] as? [String]) ?? []
@@ -560,19 +567,49 @@ channel.setMethodCallHandler { [weak self] call, result in
             return items
           }
           let count = max(labels.count, symbols.count)
+          // Dropping or restoring titles also changes the bar's intrinsic
+          // height, and the constraints that pin it are the container's —
+          // so the relayout is animated here alongside the items, or the
+          // bar would jump to its new height under a fading item set.
+          func animateLayoutIfNeeded() {
+            guard animated else { return }
+            self.container.setNeedsLayout()
+            UIView.animate(
+              withDuration: 0.28,
+              delay: 0,
+              options: [.curveEaseInOut, .allowUserInteraction, .beginFromCurrentState],
+              animations: { self.container.layoutIfNeeded() },
+              completion: nil
+            )
+          }
           if self.isSplit && count > self.rightCountVal, let left = self.tabBarLeft, let right = self.tabBarRight {
             let leftEnd = count - self.rightCountVal
-            left.items = buildItems(0..<leftEnd)
-            right.items = buildItems(leftEnd..<count)
-            if selectedIndex < leftEnd, let items = left.items { left.selectedItem = items[selectedIndex]; right.selectedItem = nil }
-            else if let items = right.items {
-              let idx = selectedIndex - leftEnd
-              if idx >= 0 && idx < items.count { right.selectedItem = items[idx]; left.selectedItem = nil }
+            let leftItems = buildItems(0..<leftEnd)
+            let rightItems = buildItems(leftEnd..<count)
+            left.setItems(leftItems, animated: animated)
+            right.setItems(rightItems, animated: animated)
+            // The swap animates; where the selection sits does not. On
+            // iOS 26 the pill would otherwise morph across the bar from
+            // wherever the fresh items left it — the same visible slide
+            // the recreate path guards against.
+            UIView.performWithoutAnimation {
+              if selectedIndex >= 0, selectedIndex < leftEnd, selectedIndex < leftItems.count { left.selectedItem = leftItems[selectedIndex]; right.selectedItem = nil }
+              else {
+                let idx = selectedIndex - leftEnd
+                if idx >= 0 && idx < rightItems.count { right.selectedItem = rightItems[idx]; left.selectedItem = nil }
+              }
             }
+            animateLayoutIfNeeded()
             result(nil)
           } else if let bar = self.tabBar {
-            bar.items = buildItems(0..<count)
-            if let items = bar.items, selectedIndex >= 0, selectedIndex < items.count { bar.selectedItem = items[selectedIndex] }
+            let items = buildItems(0..<count)
+            bar.setItems(items, animated: animated)
+            // See the split branch: animate the swap, place the selection
+            // instantly.
+            UIView.performWithoutAnimation {
+              if selectedIndex >= 0, selectedIndex < items.count { bar.selectedItem = items[selectedIndex] }
+            }
+            animateLayoutIfNeeded()
             result(nil)
           } else {
             result(FlutterError(code: "state_error", message: "Tab bars not initialized", details: nil))
