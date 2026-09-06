@@ -20,6 +20,7 @@ import '../utils/icon_renderer.dart';
 import '../utils/modal_hide_mixin.dart';
 import '../utils/theme_helper.dart';
 import '../utils/version_detector.dart';
+import '../utils/glass_occlusion.dart';
 import 'icon.dart';
 
 /// Configuration for CNButton with default values.
@@ -252,7 +253,8 @@ class CNButton extends StatefulWidget {
   State<CNButton> createState() => _CNButtonState();
 }
 
-class _CNButtonState extends State<CNButton> with ModalHideMixin<CNButton> {
+class _CNButtonState extends State<CNButton>
+    with ModalHideMixin<CNButton>, GlassOcclusionMixin<CNButton> {
   @override
   bool get autoHideOnModal => widget.autoHideOnModal;
 
@@ -364,7 +366,11 @@ class _CNButtonState extends State<CNButton> with ModalHideMixin<CNButton> {
         defaultTargetPlatform == TargetPlatform.iOS ||
         defaultTargetPlatform == TargetPlatform.macOS;
     final shouldUseNative =
-        isIOSOrMacOS && PlatformVersion.shouldUseNativeGlass;
+        isIOSOrMacOS &&
+        PlatformVersion.shouldUseNativeGlass &&
+        // Standing down to the fallback while something is drawn over
+        // this widget — see [CNGlassOcclusion].
+        !isGlassOccluded;
 
     // Fallback to Flutter implementation for non-iOS/macOS or iOS/macOS < 26
     if (!shouldUseNative) {

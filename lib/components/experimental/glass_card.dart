@@ -7,6 +7,7 @@ import '../../style/glass_effect.dart';
 import '../../style/spotlight_mode.dart';
 import '../../channel/params.dart';
 import '../../utils/version_detector.dart';
+import '../../utils/glass_occlusion.dart';
 import '../liquid_glass_container.dart';
 
 /// EXPERIMENTAL: A card widget with Liquid Glass effects, breathing animation,
@@ -69,7 +70,7 @@ class CNGlassCard extends StatefulWidget {
 }
 
 class _CNGlassCardState extends State<CNGlassCard>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, GlassOcclusionMixin<CNGlassCard> {
   late AnimationController _controller;
   late Animation<double> _animation;
 
@@ -209,7 +210,11 @@ class _CNGlassCardState extends State<CNGlassCard>
         defaultTargetPlatform == TargetPlatform.iOS ||
         defaultTargetPlatform == TargetPlatform.macOS;
     final shouldUseNative =
-        isIOSOrMacOS && PlatformVersion.shouldUseNativeGlass;
+        isIOSOrMacOS &&
+        PlatformVersion.shouldUseNativeGlass &&
+        // Standing down to the fallback while something is drawn over
+        // this widget — see [CNGlassOcclusion].
+        !isGlassOccluded;
 
     // Use native implementation for iOS 26+ with spotlight support
     if (shouldUseNative && widget.spotlight != CNSpotlightMode.none) {

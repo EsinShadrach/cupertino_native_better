@@ -6,6 +6,7 @@ import '../channel/params.dart';
 import '../style/sf_symbol.dart';
 import '../utils/modal_hide_mixin.dart';
 import '../utils/version_detector.dart';
+import '../utils/glass_occlusion.dart';
 import '../utils/theme_helper.dart';
 
 /// A Cupertino-native segmented control.
@@ -94,7 +95,9 @@ class CNSegmentedControl extends StatefulWidget {
 }
 
 class _CNSegmentedControlState extends State<CNSegmentedControl>
-    with ModalHideMixin<CNSegmentedControl> {
+    with
+        ModalHideMixin<CNSegmentedControl>,
+        GlassOcclusionMixin<CNSegmentedControl> {
   @override
   bool get autoHideOnModal => widget.autoHideOnModal;
 
@@ -138,7 +141,11 @@ class _CNSegmentedControlState extends State<CNSegmentedControl>
         defaultTargetPlatform == TargetPlatform.iOS ||
         defaultTargetPlatform == TargetPlatform.macOS;
     final shouldUseNative =
-        isIOSOrMacOS && PlatformVersion.shouldUseNativeGlass;
+        isIOSOrMacOS &&
+        PlatformVersion.shouldUseNativeGlass &&
+        // Standing down to the fallback while something is drawn over
+        // this widget — see [CNGlassOcclusion].
+        !isGlassOccluded;
 
     // Fallback to Flutter widgets for non-iOS/macOS or iOS/macOS < 26
     if (!shouldUseNative) {

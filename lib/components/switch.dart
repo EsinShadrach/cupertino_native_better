@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
 import '../channel/params.dart';
 import '../utils/version_detector.dart';
+import '../utils/glass_occlusion.dart';
 import '../utils/theme_helper.dart';
 import '../utils/modal_hide_mixin.dart';
 
@@ -88,7 +89,8 @@ class CNSwitch extends StatefulWidget {
   State<CNSwitch> createState() => _CNSwitchState();
 }
 
-class _CNSwitchState extends State<CNSwitch> with ModalHideMixin<CNSwitch> {
+class _CNSwitchState extends State<CNSwitch>
+    with ModalHideMixin<CNSwitch>, GlassOcclusionMixin<CNSwitch> {
   @override
   bool get autoHideOnModal => widget.autoHideOnModal;
 
@@ -137,7 +139,11 @@ class _CNSwitchState extends State<CNSwitch> with ModalHideMixin<CNSwitch> {
         defaultTargetPlatform == TargetPlatform.iOS ||
         defaultTargetPlatform == TargetPlatform.macOS;
     final shouldUseNative =
-        isIOSOrMacOS && PlatformVersion.shouldUseNativeGlass;
+        isIOSOrMacOS &&
+        PlatformVersion.shouldUseNativeGlass &&
+        // Standing down to the fallback while something is drawn over
+        // this widget — see [CNGlassOcclusion].
+        !isGlassOccluded;
 
     // Fallback to Flutter widgets for non-iOS/macOS or iOS/macOS < 26
     if (!shouldUseNative) {

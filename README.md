@@ -94,6 +94,49 @@ Without one of these, the package falls back to a conservative "hide every CN-wi
 
 Each affected widget also has an `autoHideOnModal: bool = true` constructor parameter so you can opt out per-instance if you ever need the old behavior.
 
+### Recommended Setup: declare overlays that cover glass
+
+The observer above catches modal *routes* and sheets. An `OverlayEntry`
+pushes no route, so nothing in the package can see it — and a CN widget is a
+native view composited **above** Flutter's content, so an overlay that crosses
+one doesn't cover it, it tears through it. Toasts, full-screen loaders and
+tutorial spotlights are the usual culprits.
+
+Tell the package, and every CN widget on screen renders the same Flutter
+fallback it would use on a device with no Liquid Glass — the control keeps its
+size and position, it just stops being glass until the overlay leaves:
+
+```dart
+// inside the toast's own build, around the card itself
+CNOccludesGlass(child: MyToastCard())
+```
+
+This is **position-aware**, like the sheet handling above: the wrapper
+publishes its rect every frame and a widget stands down only when something
+actually covers *it*. A banner across the top of the screen leaves the tab bar
+at the bottom as glass.
+
+So wrap what is visible, not the full-screen shell it sits in — a card centred
+inside a `Positioned.fill` measures as the whole screen, and then everything
+stands down. A claim made with no rect (`CNGlassOcclusion.retain()`) is the
+"covers everything" case, which is what a full-screen scrim wants.
+
+`CNOccludesGlass` adds no layout and pairs itself with its own mount lifetime,
+so there is no release to forget. If the thing covering the glass isn't a
+widget you build, claim by hand and keep the token:
+
+```dart
+final claim = CNGlassOcclusion.retain(rect: someRect);
+CNGlassOcclusion.update(claim, movedRect);
+CNGlassOcclusion.release(claim);
+```
+
+Nothing happens until you ask for it: an app that never retains behaves
+exactly as before.
+
+See `Glass occlusion (overlays over glass)` in the example app for a
+side-by-side of a wrapped and an unwrapped banner.
+
 ## Performance Best Practices
 
 ### ⚠️ LiquidGlassContainer & Lists

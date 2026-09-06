@@ -6,6 +6,7 @@ import '../channel/params.dart';
 import '../style/glass_effect.dart';
 import '../utils/modal_hide_mixin.dart';
 import '../utils/version_detector.dart';
+import '../utils/glass_occlusion.dart';
 import 'liquid_glass_container.dart';
 
 /// Position for the floating island.
@@ -182,7 +183,10 @@ class CNFloatingIsland extends StatefulWidget {
 }
 
 class _CNFloatingIslandState extends State<CNFloatingIsland>
-    with SingleTickerProviderStateMixin, ModalHideMixin<CNFloatingIsland> {
+    with
+        SingleTickerProviderStateMixin,
+        ModalHideMixin<CNFloatingIsland>,
+        GlassOcclusionMixin<CNFloatingIsland> {
   @override
   bool get autoHideOnModal => widget.autoHideOnModal;
 
@@ -338,7 +342,11 @@ class _CNFloatingIslandState extends State<CNFloatingIsland>
         defaultTargetPlatform == TargetPlatform.iOS ||
         defaultTargetPlatform == TargetPlatform.macOS;
     final shouldUseNative =
-        isIOSOrMacOS && PlatformVersion.shouldUseNativeGlass;
+        isIOSOrMacOS &&
+        PlatformVersion.shouldUseNativeGlass &&
+        // Standing down to the fallback while something is drawn over
+        // this widget — see [CNGlassOcclusion].
+        !isGlassOccluded;
 
     if (shouldUseNative) {
       return _buildNativeFloatingIsland(context);

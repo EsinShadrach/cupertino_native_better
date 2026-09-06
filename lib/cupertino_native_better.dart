@@ -32,6 +32,21 @@
 /// - [CNToast] - Toast notifications with glass effects
 /// - [LiquidGlassContainer] - Apply glass effects to any widget
 ///
+/// ## Overlays drawn over glass
+///
+/// A CN widget is a native view composited above Flutter's content, so
+/// anything Flutter paints over one tears through it instead of covering
+/// it. Modal routes and sheets are handled for you; an `OverlayEntry` —
+/// a toast, a loader, a tutorial spotlight — pushes no route and cannot
+/// be detected, so wrap it and every CN widget drops to its Flutter
+/// fallback until it leaves:
+///
+/// ```dart
+/// OverlayEntry(builder: (_) => CNOccludesGlass(child: MyToast()));
+/// ```
+///
+/// See [CNGlassOcclusion] for the manual retain/release form.
+///
 /// ## Platform Support
 ///
 /// | Feature | iOS 26+ | iOS < 26 | macOS 26+ | macOS < 26 | Other |
@@ -83,6 +98,7 @@ export 'style/spotlight_mode.dart';
 export 'style/tab_bar_search_item.dart';
 
 // Utilities
+export 'utils/glass_occlusion.dart';
 export 'utils/platform_view_guard.dart';
 export 'utils/version_detector.dart';
 export 'utils/theme_helper.dart';

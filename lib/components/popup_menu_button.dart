@@ -10,6 +10,7 @@ import '../utils/icon_renderer.dart';
 import '../utils/modal_hide_mixin.dart';
 import '../utils/theme_helper.dart';
 import '../utils/version_detector.dart';
+import '../utils/glass_occlusion.dart';
 import 'icon.dart';
 
 /// Base type for entries in a [CNPopupMenuButton] menu.
@@ -195,7 +196,9 @@ class CNPopupMenuButton extends StatefulWidget {
 }
 
 class _CNPopupMenuButtonState extends State<CNPopupMenuButton>
-    with ModalHideMixin<CNPopupMenuButton> {
+    with
+        ModalHideMixin<CNPopupMenuButton>,
+        GlassOcclusionMixin<CNPopupMenuButton> {
   @override
   bool get autoHideOnModal => widget.autoHideOnModal;
 
@@ -314,7 +317,11 @@ class _CNPopupMenuButtonState extends State<CNPopupMenuButton>
         defaultTargetPlatform == TargetPlatform.iOS ||
         defaultTargetPlatform == TargetPlatform.macOS;
     final shouldUseNative =
-        isIOSOrMacOS && PlatformVersion.shouldUseNativeGlass;
+        isIOSOrMacOS &&
+        PlatformVersion.shouldUseNativeGlass &&
+        // Standing down to the fallback while something is drawn over
+        // this widget — see [CNGlassOcclusion].
+        !isGlassOccluded;
 
     // Fallback to Flutter widgets for non-iOS/macOS or iOS/macOS < 26
     if (!shouldUseNative) {

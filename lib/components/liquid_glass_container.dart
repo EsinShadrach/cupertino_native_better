@@ -8,6 +8,7 @@ import '../utils/modal_hide_mixin.dart';
 import '../utils/theme_helper.dart';
 import '../utils/platform_view_guard.dart';
 import '../utils/version_detector.dart';
+import '../utils/glass_occlusion.dart';
 
 /// A container that applies Liquid Glass effects to its child widget.
 ///
@@ -46,7 +47,9 @@ class LiquidGlassContainer extends StatefulWidget {
 }
 
 class _LiquidGlassContainerState extends State<LiquidGlassContainer>
-    with ModalHideMixin<LiquidGlassContainer> {
+    with
+        ModalHideMixin<LiquidGlassContainer>,
+        GlassOcclusionMixin<LiquidGlassContainer> {
   @override
   bool get autoHideOnModal => widget.autoHideOnModal;
 
@@ -129,7 +132,12 @@ class _LiquidGlassContainerState extends State<LiquidGlassContainer>
     final isIOSOrMacOS =
         defaultTargetPlatform == TargetPlatform.iOS ||
         defaultTargetPlatform == TargetPlatform.macOS;
-    final shouldUseNative = isIOSOrMacOS && PlatformVersion.supportsLiquidGlass;
+    final shouldUseNative =
+        isIOSOrMacOS &&
+        PlatformVersion.supportsLiquidGlass &&
+        // Standing down to the fallback while something is drawn over
+        // this widget — see [CNGlassOcclusion].
+        !isGlassOccluded;
 
     if (!shouldUseNative) {
       return widget.child;

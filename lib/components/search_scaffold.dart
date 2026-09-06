@@ -6,6 +6,7 @@ import '../channel/params.dart';
 import '../style/sf_symbol.dart';
 import '../style/tab_bar_search_item.dart';
 import '../utils/version_detector.dart';
+import '../utils/glass_occlusion.dart';
 import '../utils/theme_helper.dart';
 import 'tab_bar.dart';
 
@@ -119,7 +120,8 @@ class CNSearchScaffold extends StatefulWidget {
   State<CNSearchScaffold> createState() => _CNSearchScaffoldState();
 }
 
-class _CNSearchScaffoldState extends State<CNSearchScaffold> {
+class _CNSearchScaffoldState extends State<CNSearchScaffold>
+    with GlassOcclusionMixin<CNSearchScaffold> {
   MethodChannel? _channel;
   int? _lastIndex;
   bool _isSearchActive = false;
@@ -187,7 +189,12 @@ class _CNSearchScaffoldState extends State<CNSearchScaffold> {
   Widget build(BuildContext context) {
     // Only use native on iOS 26+
     final isIOS = defaultTargetPlatform == TargetPlatform.iOS;
-    final shouldUseNative = isIOS && PlatformVersion.shouldUseNativeGlass;
+    final shouldUseNative =
+        isIOS &&
+        PlatformVersion.shouldUseNativeGlass &&
+        // Standing down to the fallback while something is drawn over
+        // this widget — see [CNGlassOcclusion].
+        !isGlassOccluded;
 
     if (!shouldUseNative) {
       return _buildFlutterFallback(context);

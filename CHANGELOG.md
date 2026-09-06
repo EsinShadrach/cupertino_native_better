@@ -1,3 +1,69 @@
+## 1.6.0
+
+### Added — `CNGlassOcclusion` / `CNOccludesGlass`: overlays drawn over glass
+
+A CN widget is a real `UIView` composited *above* Flutter's own content, not a
+layer inside it. Anything Flutter paints over one therefore doesn't cover it —
+it tears through it. Modal routes and sheets were already handled
+(`CNTabBarRouteObserver` + `ModalHideMixin`), but an `OverlayEntry` pushes no
+route and publishes no geometry, so nothing in the package could notice one.
+Reported as glass smearing through a foreground push-notification card sliding
+over a header.
+
+The app declares it instead:
+
+```dart
+OverlayEntry(builder: (_) => CNOccludesGlass(child: MyToast()));
+```
+
+While the count is non-zero, every CN widget renders the same Flutter fallback
+it would use on a platform with no Liquid Glass. No platform view, nothing to
+tear — and unlike the modal path's placeholder, the control keeps its shape:
+still there, still the same size, still where the finger expects it.
+
+- `CNGlassOcclusion` — `retain({Rect? rect})` returns a token; `update` moves
+  the claim, `release` withdraws it. `covers(rect)` answers the geometric
+  question for one widget.
+- `CNOccludesGlass` — a wrapper that claims the glass under its child for its
+  own mount lifetime, so a release can't be forgotten on a path nobody
+  thought about, and republishes its rect each frame. Adds no layout.
+  `enabled: false` mounts without claiming.
+- `GlassOcclusionMixin` — what wires it into a widget, exported for anyone
+  building their own platform-view component against the same signal.
+
+Gated into every component's existing native/fallback decision: `CNButton`,
+`CNPopupMenuButton`, `CNSegmentedControl`, `CNSlider`, `CNSwitch`, `CNSearchBar`,
+`CNSearchScaffold`, `CNGlassButtonGroup`, `CNFloatingIsland`, `CNTabBar`,
+`LiquidGlassContainer` and `CNGlassCard`.
+
+**Position-aware**, the same way `ModalHideMixin` is for sheets: a claim carries
+the rect it covers, and a widget stands down only when its own rect overlaps
+one. A banner across the top of the screen no longer drops the tab bar at the
+bottom out of glass. `CNOccludesGlass` republishes its rect every frame (the
+`CNSheetGeometryProbe` pattern) so a claim tracks a toast as it slides. A claim
+made without a rect — a full-screen scrim — still covers everything, and so
+does a widget that cannot measure itself.
+
+Wrap what is actually visible, not the full-screen shell it is positioned
+inside: a card centred in a `Positioned.fill` measures as the whole screen.
+
+A claim made from inside a frame — `CNOccludesGlass` does exactly that, from
+`initState` — is recorded immediately but announced at the end of the frame.
+Notifying mid-build is a `markNeedsBuild` on widgets the frame has already
+built, which Flutter refuses; the swap would silently never happen.
+
+**No behaviour change for existing consumers.** The count starts at zero and
+only ever moves when the app asks, so an app that never retains builds exactly
+what it built before.
+
+### Example app
+
+- New: `Glass occlusion (overlays over glass)` — the same banner dropped over a
+  row of CN controls, wrapped and unwrapped, with the live count printed
+  underneath. Watch the controls, not the banner.
+
+---
+
 ## 1.5.4
 
 ### Fixed — #64 `LiquidGlassContainer` glass renders short in the bottom safe area

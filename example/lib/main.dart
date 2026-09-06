@@ -18,6 +18,7 @@ import 'demos/issue2_modal_shadow_test.dart';
 import 'demos/issue28_checked_state_test.dart';
 import 'demos/cnbutton_modal_halo_test.dart';
 import 'demos/glass_widgets_modal_halo_test.dart';
+import 'demos/glass_occlusion_demo.dart';
 import 'demos/issue29_artifact_test.dart';
 import 'demos/issue29_transition_test.dart';
 import 'demos/issue31_no_search_test.dart';
@@ -281,6 +282,20 @@ class HomePage extends StatelessWidget {
           CupertinoListSection.insetGrouped(
             header: Text('Testing'),
             children: [
+              CupertinoListTile(
+                title: Text('Glass occlusion (overlays over glass)'),
+                leading: CNIcon(
+                  symbol: CNSymbol('square.3.layers.3d', color: accentColor),
+                ),
+                trailing: CupertinoListTileChevron(),
+                onTap: () {
+                  Navigator.of(context).push(
+                    CupertinoPageRoute(
+                      builder: (_) => const GlassOcclusionDemoPage(),
+                    ),
+                  );
+                },
+              ),
               CupertinoListTile(
                 title: Text('#2: Modal bottom sheet shadow'),
                 leading: CNIcon(

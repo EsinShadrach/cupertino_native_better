@@ -9,6 +9,7 @@ import '../style/tab_bar_search_item.dart';
 import '../utils/icon_renderer.dart';
 import '../utils/platform_view_guard.dart';
 import '../utils/version_detector.dart';
+import '../utils/glass_occlusion.dart';
 import '../utils/theme_helper.dart';
 import 'icon.dart';
 
@@ -285,7 +286,8 @@ class CNTabBar extends StatefulWidget {
   State<CNTabBar> createState() => _CNTabBarState();
 }
 
-class _CNTabBarState extends State<CNTabBar> {
+class _CNTabBarState extends State<CNTabBar>
+    with GlassOcclusionMixin<CNTabBar> {
   MethodChannel? _channel;
   int? _lastIndex;
   int? _lastTint;
@@ -519,7 +521,11 @@ class _CNTabBarState extends State<CNTabBar> {
         defaultTargetPlatform == TargetPlatform.iOS ||
         defaultTargetPlatform == TargetPlatform.macOS;
     final shouldUseNative =
-        isIOSOrMacOS && PlatformVersion.shouldUseNativeGlass;
+        isIOSOrMacOS &&
+        PlatformVersion.shouldUseNativeGlass &&
+        // Standing down to the fallback while something is drawn over
+        // this widget — see [CNGlassOcclusion].
+        !isGlassOccluded;
 
     if (!shouldUseNative) {
       return _buildFlutterFallback(context);

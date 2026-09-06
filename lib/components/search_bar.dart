@@ -8,6 +8,7 @@ import '../style/glass_effect.dart';
 import '../style/sf_symbol.dart';
 import '../utils/modal_hide_mixin.dart';
 import '../utils/version_detector.dart';
+import '../utils/glass_occlusion.dart';
 import 'liquid_glass_container.dart';
 import 'tab_bar.dart' show CNTabBarRouteObserver;
 
@@ -193,7 +194,10 @@ class CNSearchBar extends StatefulWidget {
 }
 
 class _CNSearchBarState extends State<CNSearchBar>
-    with SingleTickerProviderStateMixin, ModalHideMixin<CNSearchBar> {
+    with
+        SingleTickerProviderStateMixin,
+        ModalHideMixin<CNSearchBar>,
+        GlassOcclusionMixin<CNSearchBar> {
   @override
   bool get autoHideOnModal => widget.autoHideOnModal;
 
@@ -404,7 +408,11 @@ class _CNSearchBarState extends State<CNSearchBar>
         defaultTargetPlatform == TargetPlatform.iOS ||
         defaultTargetPlatform == TargetPlatform.macOS;
     final shouldUseNative =
-        isIOSOrMacOS && PlatformVersion.shouldUseNativeGlass;
+        isIOSOrMacOS &&
+        PlatformVersion.shouldUseNativeGlass &&
+        // Standing down to the fallback while something is drawn over
+        // this widget — see [CNGlassOcclusion].
+        !isGlassOccluded;
 
     if (shouldUseNative) {
       return _buildNativeSearchBar(context);
