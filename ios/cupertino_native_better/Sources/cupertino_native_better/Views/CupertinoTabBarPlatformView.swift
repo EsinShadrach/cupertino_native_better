@@ -488,7 +488,41 @@ channel.setMethodCallHandler { [weak self] call, result in
           if let scale = args["iconScale"] as? NSNumber {
             self.iconScale = CGFloat(truncating: scale)
           }
-          let selectedIndex = (args["selectedIndex"] as? NSNumber)?.intValue ?? 0
+          // Assigns init's `selectedIndex` rather than shadowing it. That
+          // local is captured by every closure built in init — including the
+          // label-render refresh, which restores the selection from it — so
+          // a `let` here left those restoring the index the bar was *created*
+          // with, sending the pill back to the first item on every label
+          // change. An absent argument means "leave it", not 0.
+          if let v = args["selectedIndex"] as? NSNumber { selectedIndex = v.intValue }
+          // A bar that shrinks as its page scrolls sheds its labels and
+          // takes them back, and that reaches us as an ordinary `setItems`
+          // where the titles are the only thing that actually moved.
+          // Rebuilding the items for that is what makes the Liquid Glass
+          // pill jump: fresh `UITabBarItem`s clear `selectedItem`, and the
+          // selection put back underneath a running swap animation leaves
+          // the pill sliding in from the first tab every time the labels
+          // cross their threshold. `UITabBarItem.title` is settable in
+          // place and the bar re-lays out around it, so when nothing else
+          // about the items has changed, retitle them and leave the
+          // selection — and the pill — untouched. Compared against what was
+          // last pushed rather than against the live items, because the
+          // items themselves don't carry the asset paths and icon bytes.
+          let newIconSizes = sizes.compactMap { $0?.doubleValue }.map { CGFloat($0) }
+          let titlesOnly =
+            labels != self.currentLabels
+            && symbols == self.currentSymbols
+            && activeSymbols == self.currentActiveSymbols
+            && badges == self.currentBadges
+            && customIconBytes == self.currentCustomIconBytes
+            && activeCustomIconBytes == self.currentActiveCustomIconBytes
+            && imageAssetPaths == self.currentImageAssetPaths
+            && activeImageAssetPaths == self.currentActiveImageAssetPaths
+            && imageAssetData == self.currentImageAssetData
+            && activeImageAssetData == self.currentActiveImageAssetData
+            && imageAssetFormats == self.currentImageAssetFormats
+            && activeImageAssetFormats == self.currentActiveImageAssetFormats
+            && newIconSizes == self.currentIconSizes
           self.currentLabels = labels
           self.currentSymbols = symbols
           self.currentActiveSymbols = activeSymbols
@@ -582,6 +616,38 @@ channel.setMethodCallHandler { [weak self] call, result in
               completion: nil
             )
           }
+          // Titles-only change — see `titlesOnly` above. Only taken when the
+          // bars already hold exactly the items these labels describe; any
+          // count mismatch falls through to the full rebuild below.
+          if titlesOnly {
+            func retitle(_ bar: UITabBar, from: Int) {
+              guard let items = bar.items else { return }
+              for (i, item) in items.enumerated() {
+                let j = from + i
+                guard j < labels.count else { return }
+                // A nil title is how UIKit is told to drop it; the bar
+                // shortens itself to suit, which is the whole point here.
+                item.title = labels[j].isEmpty ? nil : labels[j]
+              }
+              bar.invalidateIntrinsicContentSize()
+              bar.setNeedsLayout()
+            }
+            if let bar = self.tabBar, bar.items?.count == count {
+              retitle(bar, from: 0)
+              animateLayoutIfNeeded()
+              result(nil)
+              return
+            }
+            if self.isSplit, let left = self.tabBarLeft, let right = self.tabBarRight,
+               let leftCount = left.items?.count, let rightCount = right.items?.count,
+               leftCount + rightCount == count {
+              retitle(left, from: 0)
+              retitle(right, from: leftCount)
+              animateLayoutIfNeeded()
+              result(nil)
+              return
+            }
+          }
           if self.isSplit && count > self.rightCountVal, let left = self.tabBarLeft, let right = self.tabBarRight {
             let leftEnd = count - self.rightCountVal
             let leftItems = buildItems(0..<leftEnd)
@@ -623,7 +689,13 @@ channel.setMethodCallHandler { [weak self] call, result in
           let leftInset = self.leftInsetVal
           let rightInset = self.rightInsetVal
           if let sp = args["splitSpacing"] as? NSNumber { self.splitSpacingVal = CGFloat(truncating: sp) }
-          let selectedIndex = (args["selectedIndex"] as? NSNumber)?.intValue ?? 0
+          // Assigns init's `selectedIndex` rather than shadowing it. That
+          // local is captured by every closure built in init — including the
+          // label-render refresh, which restores the selection from it — so
+          // a `let` here left those restoring the index the bar was *created*
+          // with, sending the pill back to the first item on every label
+          // change. An absent argument means "leave it", not 0.
+          if let v = args["selectedIndex"] as? NSNumber { selectedIndex = v.intValue }
           // Remove existing bars
           self.tabBar?.removeFromSuperview(); self.tabBar = nil
           self.tabBarLeft?.removeFromSuperview(); self.tabBarLeft = nil
@@ -876,6 +948,9 @@ channel.setMethodCallHandler { [weak self] call, result in
           // call) and the bar happened to be at a different index, the pill
           // would animate across. Mirrors the pattern used in the `refresh`
           // case below (line 938).
+          // Recorded before it is applied, for the same reason setItems
+          // records it: this is what a later refresh restores from.
+          if idx >= 0 { selectedIndex = idx }
           // Single bar
           if let bar = self.tabBar, let items = bar.items, idx >= 0, idx < items.count {
             UIView.performWithoutAnimation { bar.selectedItem = items[idx] }
