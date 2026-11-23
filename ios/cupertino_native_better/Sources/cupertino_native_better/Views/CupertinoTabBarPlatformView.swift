@@ -2,9 +2,26 @@ import Flutter
 import UIKit
 import SVGKit
 
+/// The tab bar's container, which says when it has joined a window.
+///
+/// Flutter takes a platform view out of the window on any frame it isn't
+/// painted, such as while `CNTabBar` hides for a page transition, and puts
+/// it back after. A `UITabBar` that rejoins a window can come back with
+/// only its selected item titled, the same missing-label bug the
+/// post-create refresh works around, and nothing else ever re-lays its
+/// labels out.
+final class TabBarContainerView: UIView {
+  var onJoinWindow: (() -> Void)?
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    if window != nil { onJoinWindow?() }
+  }
+}
+
 class CupertinoTabBarPlatformView: NSObject, FlutterPlatformView, UITabBarDelegate {
   private let channel: FlutterMethodChannel
-  private let container: UIView
+  private let container: TabBarContainerView
   private var tabBar: UITabBar?
   private var tabBarLeft: UITabBar?
   private var tabBarRight: UITabBar?
@@ -34,7 +51,7 @@ class CupertinoTabBarPlatformView: NSObject, FlutterPlatformView, UITabBarDelega
 
   init(frame: CGRect, viewId: Int64, args: Any?, messenger: FlutterBinaryMessenger) {
     self.channel = FlutterMethodChannel(name: "CupertinoNativeTabBar_\(viewId)", binaryMessenger: messenger)
-    self.container = UIView(frame: frame)
+    self.container = TabBarContainerView(frame: frame)
 
     var labels: [String] = []
     var symbols: [String] = []
@@ -107,6 +124,7 @@ class CupertinoTabBarPlatformView: NSObject, FlutterPlatformView, UITabBarDelega
 
     super.init()
 
+    container.onJoinWindow = { [weak self] in self?.relayoutLabels() }
     container.backgroundColor = .clear
     // Always clip the container to block the iOS 26 Liquid Glass drop
     // shadow from bleeding over modals (Issue #2). The Liquid Glass
@@ -1174,6 +1192,32 @@ channel.setMethodCallHandler { [weak self] call, result in
   }
 
   func view() -> UIView { container }
+
+  /// Lays every item's title out again, once the bar is back in a window
+  /// at its real size. Drops each title and puts it back, with a layout
+  /// pass after each, which UIKit can't treat as a no-op. Titles are
+  /// changed in place, so the selected item and the Liquid Glass pill
+  /// don't move (see `titlesOnly` in `setItems`).
+  private func relayoutLabels() {
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self, self.container.window != nil else { return }
+      let bars = [self.tabBar, self.tabBarLeft, self.tabBarRight].compactMap { $0 }
+      UIView.performWithoutAnimation {
+        for bar in bars {
+          guard let items = bar.items, !items.isEmpty else { continue }
+          let titles = items.map { $0.title }
+          for item in items { item.title = nil }
+          bar.invalidateIntrinsicContentSize()
+          bar.setNeedsLayout()
+          bar.layoutIfNeeded()
+          for (item, title) in zip(items, titles) { item.title = title }
+          bar.invalidateIntrinsicContentSize()
+          bar.setNeedsLayout()
+          bar.layoutIfNeeded()
+        }
+      }
+    }
+  }
 
   // MARK: - Appearance helpers
 
